@@ -831,29 +831,6 @@ body::before {
   background: linear-gradient(90deg, #eec3aa, #d7a07c);
 }
 
-.firebase-status {
-  position: fixed;
-  right: 18px;
-  top: 18px;
-  z-index: 50;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.34);
-  border: 1px solid rgba(136, 84, 101, 0.12);
-  color: var(--text);
-  font-size: 0.75rem;
-  font-weight: 700;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--shadow);
-}
-
-.firebase-status.connected {
-  background: rgba(129, 199, 159, 0.18);
-  color: #2d6848;
-  border-color: rgba(129, 199, 159, 0.3);
-}
-
 @media (max-width: 980px) {
   .dashboard,
   .panel-grid,

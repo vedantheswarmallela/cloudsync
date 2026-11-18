@@ -16,11 +16,6 @@ app.config.from_object(Config)
 app.secret_key = app.config['SECRET_KEY']
 
 
-@app.context_processor
-def inject_firebase_config():
-    return {'firebase_config': app.config['FIREBASE_CONFIG']}
-
-
 @app.errorhandler(413)
 def handle_request_entity_too_large(_error):
     flash('File too large. Maximum upload size is 100 MB.', 'error')
