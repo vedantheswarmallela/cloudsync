@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from models import File, FileVersion, Folder, User, Device, DeviceSyncState, ActivityLog, Notification
+from services.storage_service import StorageService
 
 CATEGORY_MAP = {
     'documents': {'.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.csv', '.xls', '.xlsx', '.ppt', '.pptx', '.md', '.json', '.xml', '.py', '.js', '.html', '.css', '.ts', '.c', '.cpp', '.java', '.sql', '.log'},
@@ -38,9 +39,10 @@ def compute_stream_sha256(stream):
     return hasher.hexdigest()
 
 class FileService:
-    def __init__(self, db_session, upload_base_folder):
+    def __init__(self, db_session, upload_base_folder, storage=None):
         self.db = db_session
         self.upload_base_folder = upload_base_folder
+        self.storage = storage or StorageService(upload_base_folder)
 
     def _get_user_upload_dir(self, user_id):
         user_dir = os.path.join(self.upload_base_folder, str(user_id))
@@ -57,7 +59,7 @@ class FileService:
         return existing
 
     def upload_file(self, user_id, file_obj, folder_id=None, device_id=None, custom_name=None):
-        """Upload a file, check quota, check duplicates, store to disk, and register in DB."""
+        """Validate and store a file, then register its metadata."""
         user = self.db.query(User).filter_by(id=user_id).first()
         if not user:
             raise ValueError("User not found.")
@@ -67,7 +69,7 @@ class FileService:
         if not orig_filename:
             orig_filename = f"file_{uuid.uuid4().hex[:8]}.bin"
 
-        # Read into temp storage to determine size & hash
+        # Stage locally for size/hash checks before persisting to the selected backend.
         user_dir = self._get_user_upload_dir(user_id)
         temp_name = f"temp_{uuid.uuid4().hex}_{orig_filename}"
         temp_path = os.path.join(user_dir, temp_name)
@@ -91,10 +93,11 @@ class FileService:
         # Check duplicate
         duplicate = self.check_duplicate(user_id, file_hash)
 
-        # Move to permanent storage path
-        storage_filename = f"{uuid.uuid4().hex}_{orig_filename}"
-        permanent_path = os.path.join(user_dir, storage_filename)
-        os.rename(temp_path, permanent_path)
+        try:
+            permanent_path = self.storage.store_file(temp_path, user_id, orig_filename)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
         # Metadata
         category = detect_category(orig_filename)
@@ -263,18 +266,8 @@ class FileService:
         user = self.db.query(User).filter_by(id=user_id).first()
 
         if permanent:
-            # Delete physical files of all versions
-            for ver in file.versions:
-                if os.path.exists(ver.storage_path):
-                    try:
-                        os.remove(ver.storage_path)
-                    except OSError:
-                        pass
-            if os.path.exists(file.storage_path):
-                try:
-                    os.remove(file.storage_path)
-                except OSError:
-                    pass
+            for storage_path in {ver.storage_path for ver in file.versions} | {file.storage_path}:
+                self.storage.delete_file(storage_path)
 
             if user and user.storage_used_bytes >= file.file_size:
                 user.storage_used_bytes -= file.file_size
@@ -329,7 +322,7 @@ class FileService:
     def get_preview_data(self, file_id, user_id):
         """Retrieve preview data for modal viewing."""
         file = self.get_file(file_id, user_id)
-        if not file or not os.path.exists(file.storage_path):
+        if not file or not self.storage.file_exists(file.storage_path):
             return None, "File content not found on server."
 
         # Preview determination
@@ -339,16 +332,15 @@ class FileService:
         ] or file.name.endswith(('.txt', '.md', '.json', '.py', '.js', '.html', '.css', '.csv', '.sql', '.log'))
 
         if is_text:
-            try:
-                with open(file.storage_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read(150000)  # Max 150KB for preview
-                return {
-                    'type': 'text',
-                    'file': file.to_dict(),
-                    'content': content
-                }, None
-            except Exception as e:
-                return None, f"Error reading text content: {str(e)}"
+            content = self.storage.read_file(file.storage_path).decode(
+                'utf-8',
+                errors='replace',
+            )[:150000]
+            return {
+                'type': 'text',
+                'file': file.to_dict(),
+                'content': content
+            }, None
 
         if file.category == 'images':
             return {

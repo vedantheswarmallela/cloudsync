@@ -1,13 +1,14 @@
 import os
-import shutil
 import uuid
 from datetime import datetime
 from models import File, FileVersion, Device, DeviceSyncState, ActivityLog, Notification, User
+from services.storage_service import StorageService
 
 class VersionService:
-    def __init__(self, db_session, upload_base_folder):
+    def __init__(self, db_session, upload_base_folder, storage=None):
         self.db = db_session
         self.upload_base_folder = upload_base_folder
+        self.storage = storage or StorageService(upload_base_folder)
 
     def get_file_versions(self, file_id, user_id):
         file = self.db.query(File).filter_by(id=file_id, user_id=user_id).first()
@@ -34,11 +35,8 @@ class VersionService:
                 f"File size increase: {size_difference / (1024 * 1024):.1f} MB."
             )
 
-        user_dir = os.path.join(self.upload_base_folder, str(user_id))
-        os.makedirs(user_dir, exist_ok=True)
-        storage_filename = f"{uuid.uuid4().hex}_v{file.current_version + 1}_{file.name}"
-        permanent_path = os.path.join(user_dir, storage_filename)
-        shutil.copy2(new_file_path, permanent_path)
+        storage_filename = f"v{file.current_version + 1}_{file.name}"
+        permanent_path = self.storage.store_file(new_file_path, user_id, storage_filename)
 
         new_version_num = file.current_version + 1
 
@@ -103,17 +101,17 @@ class VersionService:
         if not target_ver:
             raise ValueError(f"Version {target_version_num} does not exist for this file.")
 
-        if not os.path.exists(target_ver.storage_path):
+        if not self.storage.file_exists(target_ver.storage_path):
             raise ValueError("Historical file data is not available on disk.")
 
         # Create new version increment
         new_version_num = file.current_version + 1
-        user_dir = os.path.join(self.upload_base_folder, str(user_id))
-        os.makedirs(user_dir, exist_ok=True)
-        storage_filename = f"{uuid.uuid4().hex}_v{new_version_num}_restored_{file.name}"
-        permanent_path = os.path.join(user_dir, storage_filename)
-
-        shutil.copy2(target_ver.storage_path, permanent_path)
+        storage_filename = f"v{new_version_num}_restored_{file.name}"
+        permanent_path = self.storage.copy_file(
+            target_ver.storage_path,
+            user_id,
+            storage_filename,
+        )
 
         new_version_record = FileVersion(
             file_id=file.id,

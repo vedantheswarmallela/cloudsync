@@ -5,6 +5,8 @@ import io
 import shutil
 import tempfile
 from datetime import datetime
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 # Add root directory to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,6 +18,7 @@ from services.file_service import FileService
 from services.pdf_service import validate_pdf_file
 from services.sync_engine import SyncEngine
 from services.conflict_service import ConflictService
+from services.storage_service import StorageService
 from services.version_service import VersionService
 
 class CloudSyncProTestSuite(unittest.TestCase):
@@ -537,6 +540,83 @@ class CloudSyncProTestSuite(unittest.TestCase):
         self.assertTrue(os.path.exists(original_version_path))
         self.assertEqual(len(PdfReader(file.storage_path).pages), 2)
         self.assertEqual(len(PdfReader(original_version_path).pages), 1)
+
+    def test_20_private_blob_storage_operations(self):
+        class FakeBlobNotFoundError(Exception):
+            pass
+
+        class FakeBlobClient:
+            def __init__(self):
+                self.uploaded_bytes = None
+                self.upload_options = None
+                self.read_options = None
+                self.copy_options = None
+                self.deleted_url = None
+                self.not_found = False
+
+            def put_blob(self, pathname, stream, **options):
+                self.uploaded_bytes = stream.read()
+                self.upload_options = options
+                return SimpleNamespace(url=f"https://blob.example/{pathname}")
+
+            def get_blob(self, url, **options):
+                self.read_options = (url, options)
+                return SimpleNamespace(body=self.uploaded_bytes)
+
+            def head_blob(self, url):
+                if self.not_found:
+                    raise FakeBlobNotFoundError()
+                return SimpleNamespace(url=url)
+
+            def copy_blob(self, source_url, pathname, **options):
+                self.copy_options = (source_url, pathname, options)
+                return SimpleNamespace(url=f"https://blob.example/{pathname}")
+
+            def delete_blob(self, url):
+                self.deleted_url = url
+
+        source_path = os.path.join(self.test_dir, "blob_source.txt")
+        with open(source_path, "wb") as source_file:
+            source_file.write(b"private cloud content")
+
+        storage = StorageService(self.upload_dir, use_vercel_blob=True)
+        blob_client = FakeBlobClient()
+        vercel_module = ModuleType("vercel")
+        vercel_module.__path__ = []
+        blob_module = ModuleType("vercel.blob")
+        blob_module.__path__ = []
+        errors_module = ModuleType("vercel.blob.errors")
+        errors_module.BlobNotFoundError = FakeBlobNotFoundError
+        fake_modules = {
+            "vercel": vercel_module,
+            "vercel.blob": blob_module,
+            "vercel.blob.errors": errors_module,
+        }
+        with patch.dict(sys.modules, fake_modules):
+            with patch.object(storage, "_blob_client", return_value=blob_client):
+                stored_url = storage.store_file(source_path, 42, "private.txt")
+
+                self.assertTrue(stored_url.startswith("https://blob.example/cloudsync/42/"))
+                self.assertEqual(blob_client.uploaded_bytes, b"private cloud content")
+                self.assertEqual(blob_client.upload_options["access"], "private")
+                self.assertEqual(
+                    blob_client.upload_options["content_length"],
+                    len(b"private cloud content"),
+                )
+                self.assertTrue(storage.file_exists(stored_url))
+                blob_client.not_found = True
+                self.assertFalse(storage.file_exists(stored_url))
+                blob_client.not_found = False
+                self.assertEqual(storage.read_file(stored_url), b"private cloud content")
+                self.assertEqual(blob_client.read_options, (stored_url, {"access": "private"}))
+
+                copied_url = storage.copy_file(stored_url, 42, "copy.txt")
+                self.assertTrue(copied_url.startswith("https://blob.example/cloudsync/42/"))
+                self.assertEqual(blob_client.copy_options[0], stored_url)
+                self.assertEqual(blob_client.copy_options[2], {"access": "private"})
+
+                storage.delete_file(stored_url)
+                self.assertEqual(blob_client.deleted_url, stored_url)
 
 
 if __name__ == '__main__':

@@ -1,14 +1,15 @@
 import os
-import shutil
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from models import ConflictReport, File, FileVersion, Device, ActivityLog, Notification, DeviceSyncState
+from services.storage_service import StorageService
 
 class ConflictService:
-    def __init__(self, db_session, upload_base_folder):
+    def __init__(self, db_session, upload_base_folder, storage=None):
         self.db = db_session
         self.upload_base_folder = upload_base_folder
+        self.storage = storage or StorageService(upload_base_folder)
 
     def detect_and_handle_conflict(self, user_id, file_id, device_id, base_version, incoming_file_path, incoming_filename, incoming_hash, incoming_size):
         """
@@ -34,12 +35,12 @@ class ConflictService:
             name_parts = os.path.splitext(file.name)
             conflicted_filename = f"{name_parts[0]}_conflicted_{clean_dev_name}_{timestamp_str}{name_parts[1]}"
 
-            user_dir = os.path.join(self.upload_base_folder, str(user_id))
-            os.makedirs(user_dir, exist_ok=True)
             conflicted_storage_name = f"{uuid.uuid4().hex}_{conflicted_filename}"
-            conflicted_permanent_path = os.path.join(user_dir, conflicted_storage_name)
-
-            shutil.copy2(incoming_file_path, conflicted_permanent_path)
+            conflicted_permanent_path = self.storage.store_file(
+                incoming_file_path,
+                user_id,
+                conflicted_storage_name,
+            )
 
             # Register conflicted file as independent file
             conflicted_file = File(

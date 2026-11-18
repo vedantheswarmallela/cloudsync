@@ -1,13 +1,16 @@
 import os
 import random
 import hashlib
+import io
 import tempfile
 from flask import Flask, flash, redirect, render_template, request, send_file, session, url_for
 
 from config import Config
 from models import Device, File, Notification, User, init_database
+from services.conflict_service import ConflictService
 from services.file_service import FileService, compute_sha256
 from services.pdf_service import validate_pdf_file
+from services.storage_service import StorageService
 from services.sync_engine import SyncEngine
 from services.version_service import VersionService
 
@@ -24,13 +27,19 @@ def handle_request_entity_too_large(_error):
 
 os.makedirs(Config.DATA_DIR, exist_ok=True)
 os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(Config.TEMP_FOLDER, exist_ok=True)
 
 _, db_session = init_database(app.config['SQLALCHEMY_DATABASE_URI'])
 db = db_session
 
-file_service = FileService(db, Config.UPLOAD_FOLDER)
+storage_service = StorageService(
+    Config.UPLOAD_FOLDER,
+    use_vercel_blob=Config.USE_VERCEL_BLOB,
+)
+file_service = FileService(db, Config.UPLOAD_FOLDER, storage_service)
+conflict_service = ConflictService(db, Config.UPLOAD_FOLDER, storage_service)
 sync_engine = SyncEngine(db)
-version_service = VersionService(db, Config.UPLOAD_FOLDER)
+version_service = VersionService(db, Config.UPLOAD_FOLDER, storage_service)
 
 DEMO_EMAIL = '24691a37f1@gmail.com'
 DEMO_DATA_EMAIL = 'demo@cloudsync.pro'
@@ -318,7 +327,7 @@ def edit_file(file_id):
                     mode='wb',
                     prefix='replace_pdf_',
                     suffix='.pdf',
-                    dir=os.path.dirname(file_record.storage_path),
+                    dir=Config.TEMP_FOLDER,
                     delete=False,
                 ) as temporary_file:
                     temporary_path = temporary_file.name
@@ -379,14 +388,13 @@ def edit_file(file_id):
             flash('Edited file is too large. Maximum size is 100 MB.', 'error')
             return redirect(url_for('edit_file', file_id=file_record.id))
 
-        if not os.path.exists(file_record.storage_path):
+        if not storage_service.file_exists(file_record.storage_path):
             flash('The current file content is unavailable on the server.', 'error')
             return redirect(url_for('dashboard'))
 
-        with open(file_record.storage_path, 'rb') as current_file:
-            if current_file.read() == content_bytes:
-                flash('No changes were made to this file.', 'info')
-                return redirect(url_for('dashboard'))
+        if storage_service.read_file(file_record.storage_path) == content_bytes:
+            flash('No changes were made to this file.', 'info')
+            return redirect(url_for('dashboard'))
 
         temporary_path = None
         try:
@@ -394,7 +402,7 @@ def edit_file(file_id):
                 mode='wb',
                 prefix='edit_',
                 suffix='.tmp',
-                dir=os.path.dirname(file_record.storage_path),
+                dir=Config.TEMP_FOLDER,
                 delete=False,
             ) as temporary_file:
                 temporary_file.write(content_bytes)
@@ -422,13 +430,12 @@ def edit_file(file_id):
         flash(f"Saved '{file_record.name}' as version v{file_record.current_version}.", 'success')
         return redirect(url_for('dashboard'))
 
-    if not os.path.exists(file_record.storage_path):
+    if not storage_service.file_exists(file_record.storage_path):
         flash('The current file content is unavailable on the server.', 'error')
         return redirect(url_for('dashboard'))
 
     try:
-        with open(file_record.storage_path, 'r', encoding='utf-8') as current_file:
-            content = current_file.read()
+        content = storage_service.read_file(file_record.storage_path).decode('utf-8')
     except UnicodeDecodeError:
         flash('This file is not valid UTF-8 text and cannot be edited in the dashboard.', 'error')
         return redirect(url_for('dashboard'))
@@ -471,11 +478,16 @@ def download_file(file_id):
         return redirect(url_for('index'))
 
     file_record = file_service.get_file(file_id, user.id)
-    if not file_record or not os.path.exists(file_record.storage_path):
+    if not file_record or not storage_service.file_exists(file_record.storage_path):
         flash('The requested file is unavailable.', 'error')
         return redirect(url_for('dashboard'))
 
-    return send_file(file_record.storage_path, as_attachment=True, download_name=file_record.original_name or file_record.name)
+    return send_file(
+        io.BytesIO(storage_service.read_file(file_record.storage_path)),
+        as_attachment=True,
+        download_name=file_record.original_name or file_record.name,
+        mimetype=file_record.mime_type,
+    )
 
 
 if __name__ == '__main__':
