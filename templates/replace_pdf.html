@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}Replace {{ file.name }} | CloudSync Pro{% endblock %}
+
+{% block content %}
+  <main class="file-edit-page">
+    <a class="back-link" href="{{ url_for('dashboard') }}#files">← Back to files</a>
+
+    <section class="file-editor">
+      <header class="file-editor-header">
+        <div>
+          <span class="panel-kicker">Editing version v{{ file.current_version }}</span>
+          <h1>Replace {{ file.name }}</h1>
+          <p>Edit a copy in your PDF app, then upload it here as a new version.</p>
+        </div>
+        <span class="version-badge">{{ file.file_size|filesizeformat }}</span>
+      </header>
+
+      <div class="pdf-replacement-note">
+        The previous version will be kept. Other devices will be marked for sync after saving.
+      </div>
+
+      <form method="POST" enctype="multipart/form-data" action="{{ url_for('edit_file', file_id=file.id) }}">
+        <input type="hidden" name="current_version" value="{{ file.current_version }}" />
+        <label class="editor-label" for="replacement-pdf">Edited PDF file</label>
+        <input
+          id="replacement-pdf"
+          name="replacement_pdf"
+          type="file"
+          accept=".pdf,application/pdf"
+          required
+        />
+        <div class="editor-actions">
+          <span>PDF files only · Maximum size 100 MB</span>
+          <div>
+            <a class="btn btn-secondary editor-cancel" href="{{ url_for('dashboard') }}#files">Cancel</a>
+            <button class="btn btn-primary editor-save" type="submit">Save new version</button>
+          </div>
+        </div>
+      </form>
+    </section>
+  </main>
+{% endblock %}

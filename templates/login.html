@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}CloudSync Pro | Secure Access{% endblock %}
+
+{% block content %}
+  <main class="auth-layout">
+    <section class="auth-visual">
+      <div class="auth-brand">
+        <div class="brand-mark large">C</div>
+        <div>
+          <span class="eyebrow">CloudSync Pro</span>
+          <h1>Secure file syncing for work, teams, and personal storage.</h1>
+        </div>
+      </div>
+
+      <div class="auth-points">
+        <div class="point-box">
+          <span>✓</span>
+          <p>Real-time sync across devices</p>
+        </div>
+        <div class="point-box">
+          <span>✓</span>
+          <p>Version history and backup control</p>
+        </div>
+        <div class="point-box">
+          <span>✓</span>
+          <p>Protected sharing and secure access</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="auth-panel">
+      <div class="auth-card active">
+        <div class="auth-header">
+          <span class="eyebrow">Welcome back</span>
+          <h2>Sign in</h2>
+        </div>
+
+        <form method="POST" action="{{ url_for('login') }}" class="auth-form">
+          <label>
+            Email
+            <input type="email" name="email" value="24691a37f1@gmail.com" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" value="demo123" required />
+          </label>
+          <button class="btn btn-primary btn-large" type="submit">Login</button>
+        </form>
+
+        <p class="demo-note">Demo account: 24691a37f1@gmail.com / demo123</p>
+      </div>
+
+      <div class="auth-card signup-card">
+        <div class="auth-header">
+          <span class="eyebrow">Create account</span>
+          <h2>Sign up</h2>
+        </div>
+
+        <form method="POST" action="{{ url_for('register') }}" class="auth-form">
+          <label>
+            Full name
+            <input type="text" name="username" placeholder="Your name" required />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" placeholder="you@example.com" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="Create password" required />
+          </label>
+          <div class="captcha-box">
+            <span>Security check</span>
+            <strong>{{ captcha_question }}</strong>
+            <input type="number" name="captcha" placeholder="Answer" required />
+          </div>
+          <button class="btn btn-primary btn-large" type="submit">Create account</button>
+        </form>
+      </div>
+    </section>
+  </main>
+{% endblock %}

@@ -1,0 +1,239 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard | CloudSync Pro{% endblock %}
+
+{% block content %}
+  <main class="dashboard" id="overview">
+    <aside class="sidebar">
+      <div class="profile-box">
+        <div class="avatar">{{ user.username[0].upper() }}</div>
+        <div class="profile-copy">
+          <h2>{{ user.username }}</h2>
+          <p>{{ user.email }}</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Dashboard sections">
+        <span class="menu-label">Workspace</span>
+        <a class="menu-item active" href="#overview">Overview</a>
+        <a class="menu-item" href="#files">My files <span>{{ files|length }}</span></a>
+        <a class="menu-item" href="#devices">Devices <span>{{ devices|length }}</span></a>
+      </nav>
+
+      <section class="sidebar-card storage-card" aria-labelledby="storage-title">
+        <div class="section-title-row">
+          <h3 id="storage-title">Storage</h3>
+          <span>{{ storage_percent_display }}</span>
+        </div>
+        <strong class="storage-value">{{ storage_used_display }}</strong>
+        <p>of {{ storage_quota_display }} used</p>
+        <div class="storage-progress" role="progressbar"
+             aria-label="Storage used"
+             aria-valuenow="{{ storage_percent|round(1) }}"
+             aria-valuemin="0"
+             aria-valuemax="100">
+          <span style="width: {{ storage_bar_percent }}%"></span>
+        </div>
+      </section>
+
+      <section class="sidebar-card devices-card" id="devices" aria-labelledby="devices-title">
+        <div class="section-title-row">
+          <h3 id="devices-title">Your devices</h3>
+          <span>{{ summary.online_devices }} online</span>
+        </div>
+        <ul class="device-list">
+          {% for device in devices %}
+            <li>
+              <span class="device-indicator {{ 'online' if device.is_online else 'offline' }}"></span>
+              <span class="device-name">{{ device.name }}</span>
+              <span class="device-status">{{ 'Online' if device.is_online else 'Offline' }}</span>
+            </li>
+          {% else %}
+            <li class="empty-note">No devices connected yet.</li>
+          {% endfor %}
+        </ul>
+      </section>
+    </aside>
+
+    <section class="workspace-panel">
+      <header class="dashboard-header">
+        <div>
+          <span class="eyebrow">Workspace overview</span>
+          <h1>Welcome back, {{ user.username }}</h1>
+          <p>Your files, storage, and connected devices at a glance.</p>
+        </div>
+        <form action="{{ url_for('sync_dashboard') }}" method="POST" class="inline-form">
+          <button class="btn btn-primary sync-button" type="submit">Sync devices</button>
+        </form>
+      </header>
+
+      <section class="metrics-grid" aria-label="Workspace summary">
+        <article class="metric-card">
+          <span class="metric-icon files-icon" aria-hidden="true">F</span>
+          <div>
+            <p>Total files</p>
+            <strong>{{ files|length }}</strong>
+          </div>
+          <small>Across your workspace</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon storage-icon" aria-hidden="true">S</span>
+          <div>
+            <p>Storage used</p>
+            <strong>{{ storage_used_display }}</strong>
+          </div>
+          <small>of {{ storage_quota_display }}</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon devices-icon" aria-hidden="true">D</span>
+          <div>
+            <p>Online devices</p>
+            <strong>{{ summary.online_devices }} <span class="metric-unit">/ {{ summary.total_devices }}</span></strong>
+          </div>
+          <small>Connected to your workspace</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon sync-icon" aria-hidden="true">↻</span>
+          <div>
+            <p>Pending sync</p>
+            <strong>{{ summary.pending_sync_count }}</strong>
+          </div>
+          <small>Files waiting for a device</small>
+        </article>
+      </section>
+
+      <section class="dashboard-panels">
+        <article class="content-panel upload-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">Add to your workspace</span>
+              <h2>Upload a file</h2>
+            </div>
+          </div>
+          <form action="{{ url_for('dashboard') }}" method="POST" enctype="multipart/form-data" class="upload-form">
+            <label class="upload-box">
+              <input type="file" name="file" required />
+              <span class="upload-symbol" aria-hidden="true">↑</span>
+              <span class="upload-prompt"><strong>Choose a file</strong><small>or browse from your device</small></span>
+            </label>
+            <p class="upload-file-status" aria-live="polite">No file selected · Maximum 100 MB per file</p>
+            <button class="btn btn-primary upload-button" type="submit">Upload to cloud</button>
+          </form>
+          <script>
+            const uploadForm = document.querySelector('.upload-form');
+            const uploadInput = uploadForm.querySelector('input[type="file"]');
+            const uploadStatus = uploadForm.querySelector('.upload-file-status');
+            const uploadButton = uploadForm.querySelector('button[type="submit"]');
+            const maxUploadSize = 100 * 1024 * 1024;
+
+            uploadInput.addEventListener('change', () => {
+              const file = uploadInput.files[0];
+              if (!file) {
+                uploadStatus.textContent = 'No file selected · Maximum 100 MB per file';
+                uploadStatus.classList.remove('error');
+                return;
+              }
+
+              const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+              uploadStatus.textContent = file.size > maxUploadSize
+                ? `${file.name} (${sizeMb} MB) exceeds the 100 MB limit.`
+                : `${file.name} (${sizeMb} MB) selected.`;
+              uploadStatus.classList.toggle('error', file.size > maxUploadSize);
+            });
+
+            uploadForm.addEventListener('submit', (event) => {
+              const file = uploadInput.files[0];
+              if (file && file.size > maxUploadSize) {
+                event.preventDefault();
+                uploadStatus.textContent = `${file.name} exceeds the 100 MB upload limit.`;
+                uploadStatus.classList.add('error');
+                return;
+              }
+
+              uploadButton.disabled = true;
+              uploadButton.textContent = 'Uploading...';
+            });
+          </script>
+        </article>
+
+        <article class="content-panel activity-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">Latest updates</span>
+              <h2>Recent activity</h2>
+            </div>
+          </div>
+          <ul class="activity-list">
+            {% for notification in notifications %}
+              <li>
+                <span class="activity-dot {{ notification.notification_type }}" aria-hidden="true"></span>
+                <div>
+                  <strong>{{ notification.title }}</strong>
+                  <span>{{ notification.message }}</span>
+                  <time>{{ notification.created_at.strftime('%b %d, %H:%M') if notification.created_at else '' }}</time>
+                </div>
+              </li>
+            {% else %}
+              <li class="empty-activity">No activity yet. Upload a file to get started.</li>
+            {% endfor %}
+          </ul>
+        </article>
+      </section>
+
+      <section class="files-panel" id="files">
+        <div class="files-heading">
+          <div>
+            <span class="panel-kicker">Your workspace</span>
+            <h2>Files in your cloud</h2>
+          </div>
+          <span class="files-count">{{ files|length }} {{ 'file' if files|length == 1 else 'files' }}</span>
+        </div>
+        {% if files %}
+          <div class="file-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Location</th>
+                  <th>Size</th>
+                  <th>Version</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for file in files %}
+                  <tr>
+                    <td>
+                      <div class="file-name-cell">
+                        <span class="file-type-mark">{{ file.category[:3]|upper }}</span>
+                        <span class="file-name-text">{{ file.name }}</span>
+                      </div>
+                    </td>
+                    <td>{{ file.folder.name if file.folder else 'My files' }}</td>
+                    <td>{{ file.file_size|filesizeformat }}</td>
+                    <td><span class="version-badge">v{{ file.current_version }}</span></td>
+                    <td class="actions-cell">
+                      <a href="{{ url_for('download_file', file_id=file.id) }}" class="link-btn">Download</a>
+                      {% if file.id in editable_file_ids %}
+                        <a href="{{ url_for('edit_file', file_id=file.id) }}" class="link-btn edit-link">Edit</a>
+                      {% endif %}
+                      <form action="{{ url_for('delete_file', file_id=file.id) }}" method="POST" class="inline-delete">
+                        <button type="submit">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-files">
+            <span class="empty-files-icon" aria-hidden="true">↥</span>
+            <h3>No files here yet</h3>
+            <p>Choose a file above and upload it to your cloud workspace.</p>
+          </div>
+        {% endif %}
+      </section>
+    </section>
+  </main>
+{% endblock %}

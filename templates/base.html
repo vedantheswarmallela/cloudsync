@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}CloudSync Pro{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
+      import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+      import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+      const firebaseConfig = {{ firebase_config|tojson }};
+      const firebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
+
+      const statusNode = document.getElementById('firebase-status');
+      const updateStatus = (message, connected = false) => {
+        if (!statusNode) return;
+        statusNode.textContent = message;
+        statusNode.classList.toggle('connected', connected);
+      };
+
+      window.firebaseActions = null;
+      if (firebaseConfigured) {
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const auth = getAuth(app);
+        const storage = getStorage(app);
+
+        window.firebaseApp = app;
+        window.firebaseAnalytics = analytics;
+        window.firebaseAuth = auth;
+        window.firebaseStorage = storage;
+        window.firebaseActions = {
+          signUp: async (email, password) => {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            return userCredential.user;
+          },
+          signIn: async (email, password) => {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            return userCredential.user;
+          },
+          uploadFile: async (file) => {
+            const fileRef = ref(storage, `uploads/${Date.now()}_${file.name}`);
+            const snapshot = await uploadBytes(fileRef, file);
+            const url = await getDownloadURL(snapshot.ref);
+            return { path: snapshot.ref.fullPath, url };
+          }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+          if (user) {
+            updateStatus(`Firebase connected • ${user.email}`, true);
+          } else {
+            updateStatus('Firebase connected', true);
+          }
+        });
+      } else {
+        updateStatus('Firebase not configured');
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        const statusEl = document.getElementById('firebase-status');
+        if (statusEl && firebaseConfigured) {
+          statusEl.textContent = 'Firebase connected';
+          statusEl.classList.add('connected');
+        }
+
+        document.querySelectorAll('form[data-firebase-auth]').forEach((form) => {
+          form.addEventListener('submit', async (event) => {
+            const mode = form.dataset.firebaseAuth;
+            const email = form.querySelector('input[name="email"]')?.value?.trim();
+            const password = form.querySelector('input[name="password"]')?.value || '';
+
+            if (!window.firebaseActions || !email || !password) return;
+
+            try {
+              if (mode === 'signup') {
+                await window.firebaseActions.signUp(email, password);
+              } else if (mode === 'login') {
+                await window.firebaseActions.signIn(email, password);
+              }
+            } catch (error) {
+              console.warn('Firebase auth warning:', error.message);
+            }
+          });
+        });
+
+        document.querySelectorAll('form[data-firebase-upload]').forEach((form) => {
+          form.addEventListener('submit', async (event) => {
+            const fileInput = form.querySelector('input[type="file"]');
+            const file = fileInput?.files?.[0];
+            if (!window.firebaseActions || !file) return;
+
+            try {
+              const result = await window.firebaseActions.uploadFile(file);
+              console.log('Firebase upload success:', result);
+            } catch (error) {
+              console.warn('Firebase upload warning:', error.message);
+            }
+          });
+        });
+      });
+
+      if (firebaseConfigured) console.log('Firebase connected');
+    </script>
+
+    <div class="page-shell">
+      <div id="firebase-status" class="firebase-status">Checking Firebase…</div>
+      <header class="topbar">
+        <div class="brand-wrap">
+          <div class="brand-mark">C</div>
+          <div>
+            <div class="brand-name">CloudSync Pro</div>
+            <div class="brand-subtitle">Secure file sync platform</div>
+          </div>
+        </div>
+        <nav class="topnav">
+          {% if session.get('user_id') %}
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
+          {% else %}
+            <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('login') }}" class="btn btn-primary nav-cta">Launch Demo</a>
+          {% endif %}
+        </nav>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack">
+            {% for category, message in messages %}
+              <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>

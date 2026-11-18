@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}Register | CloudSync Pro{% endblock %}
+
+{% block content %}
+  <main class="auth-shell">
+    <div class="auth-card">
+      <span class="eyebrow">Create account</span>
+      <h2>Get started</h2>
+      <form method="POST" class="auth-form">
+        <label>
+          Username
+          <input type="text" name="username" placeholder="yourname" required />
+        </label>
+        <label>
+          Email
+          <input type="email" name="email" placeholder="you@example.com" required />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" placeholder="Create a password" required />
+        </label>
+        <button class="btn btn-primary btn-large" type="submit">Create account</button>
+      </form>
+      <p class="switch-link">
+        Already have an account?
+        <a href="{{ url_for('login') }}">Sign in</a>
+      </p>
+    </div>
+  </main>
+{% endblock %}
